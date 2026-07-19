@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{TITLE_NODE}} | Trust & Thread</title>
+    <meta name="description" content="Deep dive platform architecture analysis.">
+    <style>
+        :root { --slate-900: #0F172A; --blue-600: #2563EB; --bg: #F8FAFC; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: #334155; padding: 2rem; max-width: 900px; margin: 0 auto; }
+        h1 { color: var(--slate-900); font-size: 2rem; border-bottom: 2px solid #E2E8F0; padding-bottom: 0.5rem; }
+        pre { background: #0F172A; color: #F8FAFC; padding: 1.5rem; border-radius: 8px; overflow-x: auto; }
+        .checkout-engine { background: #FFFFFF; border: 2px solid var(--blue-600); border-radius: 12px; padding: 2.5rem; margin-top: 4rem; text-align: center; }
+        .btn { display: inline-block; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: bold; margin: 0.5rem; color: white; }
+    </style>
+</head>
+<body>
+    <header><a href="/" style="color:#64748B; text-decoration:none;">&larr; TTT_INTERFACE</a></header>
+    <main>
+        <h1>{{TITLE_NODE}}</h1>
+        
+        <section class="technical-prose">
+            <!-- THE ENGINE WILL INJECT YOUR RAW POST DATA HERE -->
+            {{CONTENT_INJECTION_NODE}}
+        </section>
+        
+        <section class="checkout-engine">
+            <h3>Deploy Blueprint to Production</h3>
+            <a href="upi://pay?pa=6303685469@ybl.com&pn=TrustAndThread&am=200.00&cu=INR" class="btn" style="background: var(--blue-600);">Unlock This Module (₹200)</a>
+            <a href="upi://pay?pa=6303685469@ybl.com&pn=TrustAndThread&am=1200.00&cu=INR" class="btn" style="background: #059669;">Get All-Access Bundle Pass (₹1200)</a>
+        </section>
+    </main>
+</body>
+</html>

@@ -1,0 +1,9 @@
+r
+si 1
+speed 4000
+device STM32F407VG
+h
+loadfile build/production_asset.hex
+r
+g
+q

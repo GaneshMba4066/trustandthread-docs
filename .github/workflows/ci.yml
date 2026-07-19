@@ -1,0 +1,46 @@
+name: Trust & Thread CI
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install requirements
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Build static pages
+        run: |
+          python build_engine.py
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add & commit changes
+        run: |
+          git add blog/
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "ci: rebuild blog pages from markdown"
+
+      - name: Push to gh-pages branch
+        if: success()
+        run: |
+          git push origin HEAD:gh-pages --force
