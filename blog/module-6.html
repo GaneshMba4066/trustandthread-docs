@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Module 6: Cache Line Invalidation & Multi-Core Snooping | Trust & Thread</title>
+    <meta name="description" content="Deep dive platform architecture analysis.">
+    <style>
+        :root { --slate-900: #0F172A; --blue-600: #2563EB; --bg: #F8FAFC; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: #334155; padding: 2rem; max-width: 900px; margin: 0 auto; }
+        h1 { color: var(--slate-900); font-size: 2rem; border-bottom: 2px solid #E2E8F0; padding-bottom: 0.5rem; }
+        pre { background: #0F172A; color: #F8FAFC; padding: 1.5rem; border-radius: 8px; overflow-x: auto; }
+        .checkout-engine { background: #FFFFFF; border: 2px solid var(--blue-600); border-radius: 12px; padding: 2.5rem; margin-top: 4rem; text-align: center; }
+        .btn { display: inline-block; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: bold; margin: 0.5rem; color: white; }
+    </style>
+</head>
+<body>
+    <header><a href="/" style="color:#64748B; text-decoration:none;">&larr; TTT_INTERFACE</a></header>
+    <main>
+        <h1>Module 6: Cache Line Invalidation & Multi-Core Snooping</h1>
+        
+        <section class="technical-prose">
+            <!-- THE ENGINE WILL INJECT YOUR RAW POST DATA HERE -->
+            <h3>Overview</h3>
+<ul>
+<li>Shows ARMv8‑A <code>dsb</code>, <code>isb</code> barriers and explicit cache maintenance.</li>
+<li>Demonstrates SMP core synchronization with spinlocks.</li>
+<li>Provides precise timing for cache line operations.</li>
+</ul>
+<h3>Memory Barriers (ARMv8‑A)</h3>
+<table>
+<thead>
+<tr>
+<th>Barrier</th>
+<th>Instruction</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Full system barrier</td>
+<td><code>dsb ish</code></td>
+<td>Order all memory accesses system‑wide</td>
+</tr>
+<tr>
+<td>Instruction sync</td>
+<td><code>isb</code></td>
+<td>Flush pipeline, ensure subsequent instructions see updated state</td>
+</tr>
+<tr>
+<td>Store barrier</td>
+<td><code>dmb ishst</code></td>
+<td>Order only stores before the barrier</td>
+</tr>
+</tbody>
+</table>
+<h3>Cache Maintenance API (Linux)</h3>
+<pre><code class="language-c">void clean_invalidate_dcache_range(void *addr, size_t size)
+{
+    flush_cache_range(addr, size);
+}
+</code></pre>
+<h3>SMP Core Synchronization Pattern</h3>
+<pre><code class="language-c">/* Core 0 */
+spin_lock(&amp;sync_lock);
+write_shared_data();
+ds b ish;               /* Ensure write visible */
+spin_unlock(&amp;sync_lock);
+
+/* Core 1 */
+spin_lock(&amp;sync_lock);
+ds b ish;               /* Wait for prior stores */
+read_shared_data();
+spin_unlock(&amp;sync_lock);
+</code></pre>
+<h3>Cache Line Table (ARM Cortex‑A53 64‑byte line)</h3>
+<table>
+<thead>
+<tr>
+<th>Line</th>
+<th>Address Range</th>
+<th>State (before)</th>
+<th>State (after)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>0x8000_0000 – 0x8000_003F</td>
+<td>Invalid</td>
+<td>Modified</td>
+</tr>
+<tr>
+<td>1</td>
+<td>0x8000_0040 – 0x8000_007F</td>
+<td>Shared</td>
+<td>Exclusive</td>
+</tr>
+<tr>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+</tr>
+</tbody>
+</table>
+<h3>Deterministic Invalidation Sequence</h3>
+<ol>
+<li><strong>Invalidate line</strong>: <code>dc ivac, &lt;addr&gt;</code> → 30 ns.</li>
+<li><strong>Clean line</strong>: <code>dc cvac, &lt;addr&gt;</code> → 30 ns.</li>
+<li><strong>Barrier</strong>: <code>dsb ish</code> → 10 ns.</li>
+</ol>
+<h3>Inline Assembly (C, no_std)</h3>
+<pre><code class="language-c">static inline void invalidate_line(void *addr)
+{
+    __asm__ volatile (&quot;dc ivac, %0&quot; :: &quot;r&quot;(addr) : &quot;memory&quot;);
+    __asm__ volatile (&quot;dsb ish&quot;);
+}
+</code></pre>
+<hr />
+        </section>
+        
+        <section class="checkout-engine">
+            <h3>Deploy Blueprint to Production</h3>
+            <a href="upi://pay?pa=6303685469@ybl.com&pn=TrustAndThread&am=200.00&cu=INR" class="btn" style="background: var(--blue-600);">Unlock This Module (₹200)</a>
+            <a href="upi://pay?pa=6303685469@ybl.com&pn=TrustAndThread&am=1200.00&cu=INR" class="btn" style="background: #059669;">Get All-Access Bundle Pass (₹1200)</a>
+        </section>
+    </main>
+</body>
+</html>

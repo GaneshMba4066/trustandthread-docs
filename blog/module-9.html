@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Module 9: Hardware Cryptographic Acceleration Engines | Trust & Thread</title>
+    <meta name="description" content="Deep dive platform architecture analysis.">
+    <style>
+        :root { --slate-900: #0F172A; --blue-600: #2563EB; --bg: #F8FAFC; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: #334155; padding: 2rem; max-width: 900px; margin: 0 auto; }
+        h1 { color: var(--slate-900); font-size: 2rem; border-bottom: 2px solid #E2E8F0; padding-bottom: 0.5rem; }
+        pre { background: #0F172A; color: #F8FAFC; padding: 1.5rem; border-radius: 8px; overflow-x: auto; }
+        .checkout-engine { background: #FFFFFF; border: 2px solid var(--blue-600); border-radius: 12px; padding: 2.5rem; margin-top: 4rem; text-align: center; }
+        .btn { display: inline-block; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: bold; margin: 0.5rem; color: white; }
+    </style>
+</head>
+<body>
+    <header><a href="/" style="color:#64748B; text-decoration:none;">&larr; TTT_INTERFACE</a></header>
+    <main>
+        <h1>Module 9: Hardware Cryptographic Acceleration Engines</h1>
+        
+        <section class="technical-prose">
+            <!-- THE ENGINE WILL INJECT YOUR RAW POST DATA HERE -->
+            <h3>Overview</h3>
+<ul>
+<li>Shows AES and SHA engine register maps, DMA handshakes, and deterministic latency.</li>
+<li>Includes cache‑coherent buffer preparation and key zeroisation.</li>
+</ul>
+<h3>AES Engine Register Map (ARM CryptoCell)</h3>
+<table>
+<thead>
+<tr>
+<th>Offset</th>
+<th>Register</th>
+<th>Bits</th>
+<th>Function</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0x00</td>
+<td><strong>CR</strong></td>
+<td>0</td>
+<td>Engine enable (1 = on)</td>
+</tr>
+<tr>
+<td>0x04</td>
+<td><strong>SR</strong></td>
+<td>0</td>
+<td>Status (0 = idle, 1 = busy)</td>
+</tr>
+<tr>
+<td>0x08‑0x1C</td>
+<td><strong>KEY0‑KEY3</strong></td>
+<td>128 bits</td>
+<td>AES‑128 key slots</td>
+</tr>
+<tr>
+<td>0x20‑0x2C</td>
+<td><strong>DATA_IN0‑DATA_IN3</strong></td>
+<td>128 bits</td>
+<td>Plain‑text block</td>
+</tr>
+<tr>
+<td>0x30‑0x3C</td>
+<td><strong>DATA_OUT0‑DATA_OUT3</strong></td>
+<td>128 bits</td>
+<td>Cipher‑text output</td>
+</tr>
+<tr>
+<td>0x40</td>
+<td><strong>CTRL</strong></td>
+<td>2:0</td>
+<td>Mode (0=ECB,1=CBC,2=CTR)</td>
+</tr>
+</tbody>
+</table>
+<h3>DMA Hand‑off for AES Input</h3>
+<pre><code class="language-c">/* Configure DMA channel for 16 B block */
+DMA_Channel-&gt;CCR = DMA_CCR_EN | DMA_CCR_MINC | DMA_CCR_TCIE;
+DMA_Channel-&gt;CMAR = (uint32_t)plaintext;
+DMA_Channel-&gt;CPAR = (uint32_t)&amp;AES-&gt;DATA_IN0;
+/* Start transfer */
+DMA_Channel-&gt;CNDTR = 4; // 4×32‑bit words
+</code></pre>
+<ul>
+<li>Transfer latency ≤ 0.8 µs per 16 B block.</li>
+</ul>
+<h3>Encryption Sequence (deterministic)</h3>
+<pre><code class="language-c">/* 1. Load key */
+for (int i=0;i&lt;4;i++) AES-&gt;KEY[i] = key[i];
+/* 2. Enable engine */
+AES-&gt;CR = 1;
+/* 3. Start DMA */
+start_dma();
+/* 4. Poll for completion */
+while (!(AES-&gt;SR &amp; 0x1)) {}
+/* 5. Read ciphertext */
+for (int i=0;i&lt;4;i++) ciphertext[i] = AES-&gt;DATA_OUT[i];
+/* 6. Zeroise key */
+for (int i=0;i&lt;4;i++) AES-&gt;KEY[i] = 0;
+</code></pre>
+<ul>
+<li>Worst‑case total latency ≤ 2 µs per block.</li>
+</ul>
+<h3>SHA‑256 Engine Register Map (ARM CryptoCell)</h3>
+<table>
+<thead>
+<tr>
+<th>Offset</th>
+<th>Register</th>
+<th>Bits</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0x100</td>
+<td><strong>HASH_CTRL</strong></td>
+<td>0</td>
+<td>Start (1) / Reset (0)</td>
+</tr>
+<tr>
+<td>0x104</td>
+<td><strong>HASH_STATUS</strong></td>
+<td>0</td>
+<td>Ready flag</td>
+</tr>
+<tr>
+<td>0x108‑0x124</td>
+<td><strong>HASH_IN0‑HASH_IN15</strong></td>
+<td>32‑bit each</td>
+<td>512‑bit message block</td>
+</tr>
+<tr>
+<td>0x128‑0x144</td>
+<td><strong>HASH_OUT0‑HASH_OUT7</strong></td>
+<td>32‑bit each</td>
+<td>256‑bit digest</td>
+</tr>
+</tbody>
+</table>
+<h3>SHA‑256 Processing (deterministic)</h3>
+<pre><code class="language-c">/* Load message block */
+for (int i=0;i&lt;16;i++) HASH-&gt;IN[i] = block[i];
+HASH-&gt;CTRL = 1;               // Start
+while (!(HASH-&gt;STATUS &amp; 0x1)) {}
+/* Retrieve digest */
+for (int i=0;i&lt;8;i++) digest[i] = HASH-&gt;OUT[i];
+</code></pre>
+<h2>- Latency ≤ 3 µs for a full 512‑bit block.</h2>
+        </section>
+        
+        <section class="checkout-engine">
+            <h3>Deploy Blueprint to Production</h3>
+            <a href="upi://pay?pa=6303685469@ybl.com&pn=TrustAndThread&am=200.00&cu=INR" class="btn" style="background: var(--blue-600);">Unlock This Module (₹200)</a>
+            <a href="upi://pay?pa=6303685469@ybl.com&pn=TrustAndThread&am=1200.00&cu=INR" class="btn" style="background: #059669;">Get All-Access Bundle Pass (₹1200)</a>
+        </section>
+    </main>
+</body>
+</html>

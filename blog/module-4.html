@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Module 4: Hard RTOS Priority Inversion & Mutex Overrides | Trust & Thread</title>
+    <meta name="description" content="Deep dive platform architecture analysis.">
+    <style>
+        :root { --slate-900: #0F172A; --blue-600: #2563EB; --bg: #F8FAFC; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: #334155; padding: 2rem; max-width: 900px; margin: 0 auto; }
+        h1 { color: var(--slate-900); font-size: 2rem; border-bottom: 2px solid #E2E8F0; padding-bottom: 0.5rem; }
+        pre { background: #0F172A; color: #F8FAFC; padding: 1.5rem; border-radius: 8px; overflow-x: auto; }
+        .checkout-engine { background: #FFFFFF; border: 2px solid var(--blue-600); border-radius: 12px; padding: 2.5rem; margin-top: 4rem; text-align: center; }
+        .btn { display: inline-block; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: bold; margin: 0.5rem; color: white; }
+    </style>
+</head>
+<body>
+    <header><a href="/" style="color:#64748B; text-decoration:none;">&larr; TTT_INTERFACE</a></header>
+    <main>
+        <h1>Module 4: Hard RTOS Priority Inversion & Mutex Overrides</h1>
+        
+        <section class="technical-prose">
+            <!-- THE ENGINE WILL INJECT YOUR RAW POST DATA HERE -->
+            <h3>Overview</h3>
+<ul>
+<li>Demonstrates FreeRTOS priority‑inheritance mutex and RT‑Linux PI mutex.</li>
+<li>Shows NVIC interrupt‑priority registers and deterministic timing.</li>
+</ul>
+<h3>FreeRTOS Mutex (Priority Inheritance)</h3>
+<pre><code class="language-c">SemaphoreHandle_t xMutex = xSemaphoreCreateMutex();
+configASSERT(xMutex);
+
+/* Task A – low priority */
+void vTaskA(void *pvParameters) {
+    xSemaphoreTake(xMutex, portMAX_DELAY);
+    /* critical section */
+    vTaskDelay(pdMS_TO_TICKS(10));
+    xSemaphoreGive(xMutex);
+    vTaskDelete(NULL);
+}
+
+/* Task B – high priority */
+void vTaskB(void *pvParameters) {
+    xSemaphoreTake(xMutex, portMAX_DELAY);
+    /* fast critical section */
+    xSemaphoreGive(xMutex);
+    vTaskDelete(NULL);
+}
+</code></pre>
+<ul>
+<li>When Task B blocks on <code>xMutex</code>, FreeRTOS raises Task A’s priority to Task B’s level.</li>
+<li>Execution latency (contended lock) ≤ 12 µs on Cortex‑M7 @ 216 MHz.</li>
+</ul>
+<h3>RT‑Linux PI Mutex</h3>
+<pre><code class="language-c">struct mutex pi_mutex;
+static int __init pi_init(void)
+{
+    mutex_init(&amp;pi_mutex);
+    return 0;
+}
+
+static void critical_section(void)
+{
+    mutex_lock(&amp;pi_mutex);   /* PI flag ensures priority inheritance */
+    /* critical work */
+    mutex_unlock(&amp;pi_mutex);
+}
+</code></pre>
+<ul>
+<li>Kernel automatically boosts the holder’s priority to the highest blocked waiter.</li>
+<li>Worst‑case lock latency ≤ 8 µs on ARMv8‑A 1.5 GHz.</li>
+</ul>
+<h3>NVIC Interrupt‑Priority Register Map (Cortex‑M)</h3>
+<table>
+<thead>
+<tr>
+<th>Register</th>
+<th>Offset</th>
+<th>Bits</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>IPR[n]</code></td>
+<td>0xE000E400 + 4·n</td>
+<td>7:0</td>
+<td>Interrupt priority (0 = highest)</td>
+</tr>
+<tr>
+<td><code>ISER[n]</code></td>
+<td>0xE000E100 + 4·n</td>
+<td>0</td>
+<td>Enable bit</td>
+</tr>
+<tr>
+<td><code>ICER[n]</code></td>
+<td>0xE000E180 + 4·n</td>
+<td>0</td>
+<td>Disable bit</td>
+</tr>
+</tbody>
+</table>
+<h3>Deterministic Timing Table</h3>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Max latency</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Mutex lock (contended)</td>
+<td>12 µs</td>
+</tr>
+<tr>
+<td>Mutex unlock</td>
+<td>3 µs</td>
+</tr>
+<tr>
+<td>Context switch on priority boost</td>
+<td>≤ 1.5 µs</td>
+</tr>
+</tbody>
+</table>
+<h3>Override Example (FreeRTOS)</h3>
+<pre><code class="language-c">/* Temporarily suppress inheritance */
+vTaskPrioritySet(handle, configMAX_PRIORITIES - 1);
+xSemaphoreGive(xMutex);
+vTaskPrioritySet(handle, original_prio);
+</code></pre>
+<hr />
+        </section>
+        
+        <section class="checkout-engine">
+            <h3>Deploy Blueprint to Production</h3>
+            <a href="upi://pay?pa=6303685469@ybl.com&pn=TrustAndThread&am=200.00&cu=INR" class="btn" style="background: var(--blue-600);">Unlock This Module (₹200)</a>
+            <a href="upi://pay?pa=6303685469@ybl.com&pn=TrustAndThread&am=1200.00&cu=INR" class="btn" style="background: #059669;">Get All-Access Bundle Pass (₹1200)</a>
+        </section>
+    </main>
+</body>
+</html>

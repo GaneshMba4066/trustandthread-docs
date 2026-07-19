@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Module 3: Linux Driver Hooks & DMA Ring Buffers | Trust & Thread</title>
+    <meta name="description" content="Deep dive platform architecture analysis.">
+    <style>
+        :root { --slate-900: #0F172A; --blue-600: #2563EB; --bg: #F8FAFC; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: #334155; padding: 2rem; max-width: 900px; margin: 0 auto; }
+        h1 { color: var(--slate-900); font-size: 2rem; border-bottom: 2px solid #E2E8F0; padding-bottom: 0.5rem; }
+        pre { background: #0F172A; color: #F8FAFC; padding: 1.5rem; border-radius: 8px; overflow-x: auto; }
+        .checkout-engine { background: #FFFFFF; border: 2px solid var(--blue-600); border-radius: 12px; padding: 2.5rem; margin-top: 4rem; text-align: center; }
+        .btn { display: inline-block; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: bold; margin: 0.5rem; color: white; }
+    </style>
+</head>
+<body>
+    <header><a href="/" style="color:#64748B; text-decoration:none;">&larr; TTT_INTERFACE</a></header>
+    <main>
+        <h1>Module 3: Linux Driver Hooks & DMA Ring Buffers</h1>
+        
+        <section class="technical-prose">
+            <!-- THE ENGINE WILL INJECT YOUR RAW POST DATA HERE -->
+            <h3>Overview</h3>
+<ul>
+<li>Register a character device with <code>cdev_add</code>.</li>
+<li>Implement <code>mmap</code> to expose a DMA‑capable buffer to user space.</li>
+<li>Ensure cache coherency with <code>dma_map_*</code>/<code>dma_unmap_*</code>.</li>
+</ul>
+<h3>Device Registration</h3>
+<pre><code class="language-c">static dev_t dev_num;
+static struct cdev dma_cdev;
+static struct class *dma_class;
+
+/* Probe called by platform driver */
+static int dma_probe(struct platform_device *pdev)
+{
+    int ret;
+    struct device *dev = &amp;pdev-&gt;dev;
+
+    /* Allocate device numbers */
+    ret = alloc_chrdev_region(&amp;dev_num, 0, 1, &quot;dma_char&quot;);
+    if (ret) return ret;
+
+    cdev_init(&amp;dma_cdev, &amp;dma_fops);
+    dma_cdev.owner = THIS_MODULE;
+    ret = cdev_add(&amp;dma_cdev, dev_num, 1);
+    if (ret) goto err_unreg;
+
+    dma_class = class_create(THIS_MODULE, &quot;dma_class&quot;);
+    if (IS_ERR(dma_class)) { ret = PTR_ERR(dma_class); goto err_cdev; }
+
+    device_create(dma_class, dev, dev_num, NULL, &quot;dma0&quot;);
+    return 0;
+
+err_cdev:
+    cdev_del(&amp;dma_cdev);
+err_unreg:
+    unregister_chrdev_region(dev_num, 1);
+    return ret;
+}
+</code></pre>
+<h3><code>mmap</code> Implementation</h3>
+<pre><code class="language-c">static int dma_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+    unsigned long phys_addr;
+    unsigned long size = vma-&gt;vm_end - vma-&gt;vm_start;
+
+    /* Physical address of pre‑allocated DMA buffer */
+    phys_addr = virt_to_phys(dma_buffer);
+
+    /* Align to page size */
+    if (size &gt; DMA_BUFFER_SIZE) return -EINVAL;
+
+    /* Map to user space */
+    if (remap_pfn_range(vma,
+                        vma-&gt;vm_start,
+                        phys_addr &gt;&gt; PAGE_SHIFT,
+                        size,
+                        vma-&gt;vm_page_prot))
+        return -EAGAIN;
+
+    /* Ensure CPU sees latest data */
+    dma_sync_single_for_cpu(&amp;pdev-&gt;dev,
+                            phys_addr,
+                            size,
+                            DMA_FROM_DEVICE);
+
+    return 0;
+}
+</code></pre>
+<h3>Register Layout (STM32F7 DMA Controller)</h3>
+<table>
+<thead>
+<tr>
+<th>Offset</th>
+<th>Register</th>
+<th>Bits</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0x00</td>
+<td><strong>DMA_SxCR</strong></td>
+<td>31:0</td>
+<td>Stream control (EN, DIR, PSIZE, MSIZE, MINC, CIRC)</td>
+</tr>
+<tr>
+<td>0x04</td>
+<td><strong>DMA_SxNDTR</strong></td>
+<td>15:0</td>
+<td>Number of data items to transfer</td>
+</tr>
+<tr>
+<td>0x08</td>
+<td><strong>DMA_SxPAR</strong></td>
+<td>31:0</td>
+<td>Peripheral address</td>
+</tr>
+<tr>
+<td>0x0C</td>
+<td><strong>DMA_SxM0AR</strong></td>
+<td>31:0</td>
+<td>Memory 0 address</td>
+</tr>
+<tr>
+<td>0x10</td>
+<td><strong>DMA_SxFCR</strong></td>
+<td>31:0</td>
+<td>FIFO control &amp; threshold</td>
+</tr>
+</tbody>
+</table>
+<h3>Cache Coherency Fence (ARMv8‑A)</h3>
+<pre><code class="language-c">/* Flush CPU cache lines that back the DMA buffer */
+static inline void dma_flush_cache(void *addr, size_t size)
+{
+    __asm__ volatile (&quot;dc cvac, %0&quot; :: &quot;r&quot;(addr) : &quot;memory&quot;);
+    __asm__ volatile (&quot;dsb ish&quot;);
+    __asm__ volatile (&quot;isb&quot;);
+}
+</code></pre>
+<h3>Execution Timing</h3>
+<ul>
+<li><strong>DMA Transfer Initiation</strong>: ≤ 2 µs (programming registers).</li>
+<li><strong>Data Arrival Interrupt</strong>: ≤ 150 ns latency from peripheral request.</li>
+<li><strong>User‑Space Read</strong>: <code>mmap</code> returns in ≤ 5 µs on a 3 GHz Cortex‑A57.</li>
+</ul>
+        </section>
+        
+        <section class="checkout-engine">
+            <h3>Deploy Blueprint to Production</h3>
+            <a href="upi://pay?pa=6303685469@ybl.com&pn=TrustAndThread&am=200.00&cu=INR" class="btn" style="background: var(--blue-600);">Unlock This Module (₹200)</a>
+            <a href="upi://pay?pa=6303685469@ybl.com&pn=TrustAndThread&am=1200.00&cu=INR" class="btn" style="background: #059669;">Get All-Access Bundle Pass (₹1200)</a>
+        </section>
+    </main>
+</body>
+</html>
