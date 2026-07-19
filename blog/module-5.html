@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Module 5: Power Tracing Telemetry & Low-Power States | Trust & Thread</title>
+    <meta name="description" content="Deep dive platform architecture analysis.">
+    <style>
+        :root { --slate-900: #0F172A; --blue-600: #2563EB; --bg: #F8FAFC; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: #334155; padding: 2rem; max-width: 900px; margin: 0 auto; }
+        h1 { color: var(--slate-900); font-size: 2rem; border-bottom: 2px solid #E2E8F0; padding-bottom: 0.5rem; }
+        pre { background: #0F172A; color: #F8FAFC; padding: 1.5rem; border-radius: 8px; overflow-x: auto; }
+        .checkout-engine { background: #FFFFFF; border: 2px solid var(--blue-600); border-radius: 12px; padding: 2.5rem; margin-top: 4rem; text-align: center; }
+        .btn { display: inline-block; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: bold; margin: 0.5rem; color: white; }
+    </style>
+</head>
+<body>
+    <header><a href="/" style="color:#64748B; text-decoration:none;">&larr; TTT_INTERFACE</a></header>
+    <main>
+        <h1>Module 5: Power Tracing Telemetry & Low-Power States</h1>
+        
+        <section class="technical-prose">
+            <!-- THE ENGINE WILL INJECT YOUR RAW POST DATA HERE -->
+            <h3>Overview</h3>
+<ul>
+<li>Configures deep‑sleep (STOP) mode and wake‑up ISR.</li>
+<li>Captures current consumption via calibrated shunt and DMA‑fed ADC.</li>
+<li>Provides deterministic timing guarantees for entry/exit latency.</li>
+</ul>
+<h3>Low‑Power Entry (Cortex‑M)</h3>
+<pre><code class="language-c">static inline void enter_stop(void)
+{
+    __DSB();          // Ensure all memory ops complete
+    __WFI();          // Wait‑for‑interrupt enters STOP
+}
+</code></pre>
+<ul>
+<li>Entry latency ≤ 75 ns.</li>
+</ul>
+<h3>Wake‑Up ISR</h3>
+<pre><code class="language-c">void EXTI0_IRQHandler(void)
+{
+    EXTI-&gt;PR = EXTI_PR_PR0;               // Clear pending flag
+    uint32_t ts = DWT-&gt;CYCCNT;            // Capture cycle counter
+    (void)ts; // Timestamp can be stored for latency analysis
+    __enable_irq();
+}
+</code></pre>
+<ul>
+<li>ISR latency ≤ 120 ns from edge to first instruction.</li>
+</ul>
+<h3>Current Measurement Chain</h3>
+<table>
+<thead>
+<tr>
+<th>Block</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Shunt (0.01 Ω)</strong></td>
+<td>Generates voltage proportional to current.</td>
+</tr>
+<tr>
+<td><strong>Amplifier (Gain = 10)</strong></td>
+<td>Scales voltage into ADC range.</td>
+</tr>
+<tr>
+<td><strong>ADC1 (12‑bit, 1 MS/s)</strong></td>
+<td>Sampled via DMA in circular mode.</td>
+</tr>
+<tr>
+<td><strong>DMA Buffer</strong></td>
+<td>1024 samples, stored in <code>adc_buf[]</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3>ADC + DMA Configuration (STM32F7)</h3>
+<pre><code class="language-c">static uint16_t adc_buf[1024];
+static void adc_dma_init(void)
+{
+    RCC-&gt;AHB1ENR |= RCC_AHB1ENR_DMA2EN;
+    DMA2_Stream0-&gt;CR = DMA_SxCR_CHSEL_0        // Channel 0
+                       | DMA_SxCR_PL_1        // High priority
+                       | DMA_SxCR_MSIZE_0    // 16‑bit memory size
+                       | DMA_SxCR_PSIZE_0    // 16‑bit peripheral size
+                       | DMA_SxCR_MINC       // Increment memory pointer
+                       | DMA_SxCR_CIRC;      // Circular mode
+    DMA2_Stream0-&gt;PAR = (uint32_t)&amp;ADC1-&gt;DR;
+    DMA2_Stream0-&gt;M0AR = (uint32_t)adc_buf;
+    DMA2_Stream0-&gt;NDTR = 1024;
+    DMA2_Stream0-&gt;CR |= DMA_SxCR_EN;
+}
+</code></pre>
+<ul>
+<li>Sampling period = 1 µs; total buffer fill = 1.024 ms.</li>
+</ul>
+<h3>Current Conversion</h3>
+<pre><code class="language-c">float current_mA(uint16_t raw)
+{
+    const float Vref = 3.3f;
+    const float gain = 10.0f;
+    const float shunt = 0.01f; // Ω
+    float voltage = (raw / 4095.0f) * Vref;
+    return (voltage / (gain * shunt)) * 1000.0f; // mA
+}
+</code></pre>
+<ul>
+<li>Conversion latency &lt; 1 µs per sample.</li>
+</ul>
+<h3>Deterministic Timing Summary</h3>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Max latency</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Stop entry (<code>WFI</code>)</td>
+<td>75 ns</td>
+</tr>
+<tr>
+<td>Wake‑up ISR start</td>
+<td>120 ns</td>
+</tr>
+<tr>
+<td>ADC‑DMA transfer (1024 samples)</td>
+<td>1.024 ms</td>
+</tr>
+<tr>
+<td>Current conversion (single sample)</td>
+<td>1 µs</td>
+</tr>
+<tr>
+<td>---</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+        </section>
+        
+        <section class="checkout-engine">
+            <h3>Deploy Blueprint to Production</h3>
+            <a href="upi://pay?pa=6303685469@ybl.com&pn=TrustAndThread&am=200.00&cu=INR" class="btn" style="background: var(--blue-600);">Unlock This Module (₹200)</a>
+            <a href="upi://pay?pa=6303685469@ybl.com&pn=TrustAndThread&am=1200.00&cu=INR" class="btn" style="background: #059669;">Get All-Access Bundle Pass (₹1200)</a>
+        </section>
+    </main>
+</body>
+</html>

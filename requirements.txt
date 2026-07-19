@@ -1,2 +1,6 @@
+<fastapi
+uvicorn[standard]
 mkdocs==1.5.3
 mkdocs-material==9.5.14
+markdown
+

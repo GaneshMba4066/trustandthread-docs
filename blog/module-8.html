@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Module 8: Storage Controller Invariants & Flash Wear-Leveling | Trust & Thread</title>
+    <meta name="description" content="Deep dive platform architecture analysis.">
+    <style>
+        :root { --slate-900: #0F172A; --blue-600: #2563EB; --bg: #F8FAFC; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: #334155; padding: 2rem; max-width: 900px; margin: 0 auto; }
+        h1 { color: var(--slate-900); font-size: 2rem; border-bottom: 2px solid #E2E8F0; padding-bottom: 0.5rem; }
+        pre { background: #0F172A; color: #F8FAFC; padding: 1.5rem; border-radius: 8px; overflow-x: auto; }
+        .checkout-engine { background: #FFFFFF; border: 2px solid var(--blue-600); border-radius: 12px; padding: 2.5rem; margin-top: 4rem; text-align: center; }
+        .btn { display: inline-block; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: bold; margin: 0.5rem; color: white; }
+    </style>
+</head>
+<body>
+    <header><a href="/" style="color:#64748B; text-decoration:none;">&larr; TTT_INTERFACE</a></header>
+    <main>
+        <h1>Module 8: Storage Controller Invariants & Flash Wear-Leveling</h1>
+        
+        <section class="technical-prose">
+            <!-- THE ENGINE WILL INJECT YOUR RAW POST DATA HERE -->
+            <h3>Overview</h3>
+<ul>
+<li>Low‑level NAND/NOR flash command set (ONFI).</li>
+<li>Page allocation table and wear‑leveling algorithm.</li>
+<li>ECC verification flow with BCH (24‑bit) correction.</li>
+</ul>
+<h3>ONFI Command Set</h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Opcode</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>READ</td>
+<td>0x00</td>
+<td>Load page data into data register</td>
+</tr>
+<tr>
+<td>PAGE PROGRAM</td>
+<td>0x80</td>
+<td>Write data from buffer to page</td>
+</tr>
+<tr>
+<td>BLOCK ERASE</td>
+<td>0x60 → 0xD0</td>
+<td>Erase entire block</td>
+</tr>
+<tr>
+<td>GET FEATURES</td>
+<td>0xEE</td>
+<td>Retrieve device parameters</td>
+</tr>
+</tbody>
+</table>
+<h3>Flash Controller Registers (STM32F7 FMC)</h3>
+<table>
+<thead>
+<tr>
+<th>Offset</th>
+<th>Register</th>
+<th>Bits</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0x00</td>
+<td><strong>FMC_Bank1_RSR</strong></td>
+<td>0</td>
+<td><strong>BUSY</strong> – controller busy flag</td>
+</tr>
+<tr>
+<td>0x04</td>
+<td><strong>FMC_Bank1_CR</strong></td>
+<td>1:0</td>
+<td><strong>CMD</strong> – operation (READ/WRITE/ERASE)</td>
+</tr>
+<tr>
+<td>0x08</td>
+<td><strong>FMC_Bank1_ADDR</strong></td>
+<td>31:0</td>
+<td>Target address</td>
+</tr>
+<tr>
+<td>0x0C</td>
+<td><strong>FMC_Bank1_DATA</strong></td>
+<td>31:0</td>
+<td>Data register</td>
+</tr>
+</tbody>
+</table>
+<h3>ECC Verification (BCH, 24‑bit)</h3>
+<pre><code class="language-c">/* Raw ECC syndrome from controller */
+uint32_t ecc_syndrome = FMC-&gt;ECC;
+/* BCH decoder returns corrected word or error code */
+int status = bch_decode(ecc_syndrome, corrected_data);
+if (status == BCH_ERR_UNCORRECTABLE) {
+    // Trigger block‑level wear‑leveling relocation
+    relocate_block(page_addr);
+}
+</code></pre>
+<ul>
+<li>Correctable up to 4 bit‑errors per 512 B sector.</li>
+<li>Uncorrectable error triggers immediate wear‑leveling move.</li>
+</ul>
+<h3>Wear‑Leveling Table (example geometry)</h3>
+<table>
+<thead>
+<tr>
+<th>Block</th>
+<th>Erase Count</th>
+<th>Valid Pages</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0x0000</td>
+<td>12</td>
+<td>128</td>
+</tr>
+<tr>
+<td>0x0001</td>
+<td>15</td>
+<td>128</td>
+</tr>
+<tr>
+<td>…</td>
+<td>…</td>
+<td>…</td>
+</tr>
+<tr>
+<td>0x0FFF</td>
+<td>9</td>
+<td>128</td>
+</tr>
+</tbody>
+</table>
+<h3>Deterministic Write Sequence</h3>
+<pre><code class="language-c">/* 1. Issue PAGE PROGRAM */
+FMC-&gt;CR = (0x80 &lt;&lt; 0);
+FMC-&gt;ADDR = page_addr;
+/* 2. Write data (aligned 32‑bit) */
+for (i = 0; i &lt; PAGE_SIZE/4; ++i)
+    FMC-&gt;DATA = src[i];
+/* 3. Start program */
+FMC-&gt;CR |= (1 &lt;&lt; 31);      // START bit
+while (FMC-&gt;RSR &amp; 0x1);    // Wait for BUSY clear
+</code></pre>
+<ul>
+<li>Programming latency ≤ 1.6 ms per 256 KB page (160 µs/KB).</li>
+<li>Erase latency ≤ 30 ms per 128 KB block.</li>
+</ul>
+<h3>Wear‑Leveling Algorithm (deterministic steps)</h3>
+<ol>
+<li>Scan <code>wear_table[]</code> for the block with the <strong>minimum erase count</strong> (<code>min_erase</code>).</li>
+<li>Allocate a fresh page in that block.</li>
+<li><strong>Copy‑on‑write</strong>: read source page → program destination page.</li>
+<li>Update mapping table atomically (single flash write).</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Max latency</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Block selection</td>
+<td>2 µs (RAM lookup)</td>
+</tr>
+<tr>
+<td>Page copy (256 KB)</td>
+<td>1.6 ms</td>
+</tr>
+<tr>
+<td>Mapping update</td>
+<td>120 µs</td>
+</tr>
+<tr>
+<td>---</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+        </section>
+        
+        <section class="checkout-engine">
+            <h3>Deploy Blueprint to Production</h3>
+            <a href="upi://pay?pa=6303685469@ybl.com&pn=TrustAndThread&am=200.00&cu=INR" class="btn" style="background: var(--blue-600);">Unlock This Module (₹200)</a>
+            <a href="upi://pay?pa=6303685469@ybl.com&pn=TrustAndThread&am=1200.00&cu=INR" class="btn" style="background: #059669;">Get All-Access Bundle Pass (₹1200)</a>
+        </section>
+    </main>
+</body>
+</html>

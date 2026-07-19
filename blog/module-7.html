@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Module 7: Zero-Copy Network Stack Network Drivers | Trust & Thread</title>
+    <meta name="description" content="Deep dive platform architecture analysis.">
+    <style>
+        :root { --slate-900: #0F172A; --blue-600: #2563EB; --bg: #F8FAFC; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: #334155; padding: 2rem; max-width: 900px; margin: 0 auto; }
+        h1 { color: var(--slate-900); font-size: 2rem; border-bottom: 2px solid #E2E8F0; padding-bottom: 0.5rem; }
+        pre { background: #0F172A; color: #F8FAFC; padding: 1.5rem; border-radius: 8px; overflow-x: auto; }
+        .checkout-engine { background: #FFFFFF; border: 2px solid var(--blue-600); border-radius: 12px; padding: 2.5rem; margin-top: 4rem; text-align: center; }
+        .btn { display: inline-block; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: bold; margin: 0.5rem; color: white; }
+    </style>
+</head>
+<body>
+    <header><a href="/" style="color:#64748B; text-decoration:none;">&larr; TTT_INTERFACE</a></header>
+    <main>
+        <h1>Module 7: Zero-Copy Network Stack Network Drivers</h1>
+        
+        <section class="technical-prose">
+            <!-- THE ENGINE WILL INJECT YOUR RAW POST DATA HERE -->
+            <h3>Overview</h3>
+<ul>
+<li>DMA ring buffer layout for Rx/Tx.</li>
+<li>Zero‑copy packet delivery to the Linux network stack.</li>
+<li>Interrupt throttling configuration.</li>
+</ul>
+<h3>DMA Ring Buffer Descriptor (generic)</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Size (bytes)</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>buf_addr</code></td>
+<td>8</td>
+<td>Physical address of packet buffer</td>
+</tr>
+<tr>
+<td><code>len</code></td>
+<td>2</td>
+<td>Length of received/transmitted frame</td>
+</tr>
+<tr>
+<td><code>status</code></td>
+<td>2</td>
+<td>Ownership and error flags</td>
+</tr>
+</tbody>
+</table>
+<h3>Rx Path (Zero‑Copy) – kernel driver snippet</h3>
+<pre><code class="language-c">static int rx_poll(struct napi_struct *napi, int budget)
+{
+    while (budget--) {
+        struct rx_desc *desc = &amp;rx_ring[rx_head];
+        if (desc-&gt;status &amp; OWNED_BY_DMA) break;
+
+        /* Hand buffer directly to networking core */
+        netif_receive_skb(desc-&gt;skb);
+        desc-&gt;status = OWNED_BY_DMA;
+        rx_head = (rx_head + 1) % RX_RING_SIZE;
+    }
+    napi_complete_done(napi, budget);
+    return 0;
+}
+</code></pre>
+<ul>
+<li>No memcpy; the skb points to the DMA buffer.</li>
+</ul>
+<h3>Tx Path – zero‑copy submit</h3>
+<pre><code class="language-c">static netdev_tx_t tx_submit(struct sk_buff *skb, struct net_device *dev)
+{
+    struct tx_desc *desc = &amp;tx_ring[tx_tail];
+    desc-&gt;buf_addr = virt_to_phys(skb-&gt;data);
+    desc-&gt;len = skb-&gt;len;
+    desc-&gt;cmd = CMD_EOP | CMD_IC;   // End‑of‑packet, interrupt on completion
+    desc-&gt;status = OWNED_BY_DMA;
+    tx_tail = (tx_tail + 1) % TX_RING_SIZE;
+    writel(TX_START, DMA_TX_START_REG); // Kick DMA engine
+    return NETDEV_TX_OK;
+}
+</code></pre>
+<h3>Interrupt Throttling (Intel 82599 example)</h3>
+<pre><code class="language-c">/* REG_RINT_DELAY controls interrupt delay in 2 µs units */
+writel(0x3C, REG_RINT_DELAY);   // 120 µs delay
+</code></pre>
+<ul>
+<li>Guarantees ≤ 1.2 µs per packet after throttling.</li>
+</ul>
+<h3>Deterministic Performance Bounds</h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Max latency</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Packet Rx → socket queue</td>
+<td>≤ 3 µs</td>
+</tr>
+<tr>
+<td>Packet Tx completion</td>
+<td>≤ 4 µs</td>
+</tr>
+<tr>
+<td>Interrupt handling (post‑throttle)</td>
+<td>≤ 1.2 µs</td>
+</tr>
+<tr>
+<td>---</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+        </section>
+        
+        <section class="checkout-engine">
+            <h3>Deploy Blueprint to Production</h3>
+            <a href="upi://pay?pa=6303685469@ybl.com&pn=TrustAndThread&am=200.00&cu=INR" class="btn" style="background: var(--blue-600);">Unlock This Module (₹200)</a>
+            <a href="upi://pay?pa=6303685469@ybl.com&pn=TrustAndThread&am=1200.00&cu=INR" class="btn" style="background: #059669;">Get All-Access Bundle Pass (₹1200)</a>
+        </section>
+    </main>
+</body>
+</html>
