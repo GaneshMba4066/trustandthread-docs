@@ -1,0 +1,23 @@
+name: Deploy to GCP
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: 34.61.81.34
+          username: medidaganesh2399
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /home/medidaganesh2399/app
+            git pull origin main
+            /home/medidaganesh2399/app/venv/bin/pip install -r requirements.txt
+            sudo systemctl restart fastapi
