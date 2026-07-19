@@ -1,0 +1,19 @@
+app = "trustandthread-api"
+primary_region = "auto"
+
+[env]
+  DATABASE_URL = "sqlite:///data/trustandthread.db"
+  JWT_SIGNING_KEY = "super_secure_system_bus_secret"
+  RAZORPAY_WEBHOOK_SECRET = "test_webhook_secret_key_12345"
+
+[[services]]
+  internal_port = 8000
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
